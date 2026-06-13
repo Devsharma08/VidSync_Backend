@@ -1,0 +1,139 @@
+import {google,youtube_v3} from 'googleapis';
+import { generateChannelId, normaliseDate } from '../utils/youtube-parser';
+import dotenv from 'dotenv'
+dotenv.config({
+   path:'.env'
+})
+
+export class YoutubeService{
+   private youtube:youtube_v3.Youtube;
+
+   constructor(){
+      const youtube_key = process.env.YT_V3_API_KEY;
+   if(!youtube_key){
+      throw new Error("youtube api key not provided");
+   }
+
+   this.youtube = google.youtube({
+      version:'v3',
+      auth:youtube_key
+   });
+   }
+
+   //  serach for video by link
+   async getVideoById(video_id:string){
+      try{
+         const res = await this.youtube.videos.list({
+            part:['snippet','statistics','liveStreamingDetails'],
+            id:[video_id]
+         });
+         const item = res.data.items?.[0];
+         if(!item){
+            throw new Error("video not found");
+         }
+         const isLiveStream = !!item.liveStreamingDetails;
+         const liveStatus = item?.snippet?.liveBroadcastContent;
+
+         return {
+            id:item.id,
+            title:item?.snippet?.title,
+            description:item?.snippet?.description,
+            publishedAt:normaliseDate(item?.snippet?.publishedAt || ""),
+            channelId:item?.snippet?.channelId,
+            channelTitle:item?.snippet?.channelTitle,
+            categoryId:item?.snippet?.categoryId,
+            viewCount:item?.statistics?.viewCount || 0,
+            likeCount:item?.statistics?.likeCount || 0,
+            commentCount:item?.statistics?.commentCount || 0,
+            isLiveStream:isLiveStream ? {
+               status:liveStatus,
+               actualStartTime:normaliseDate(item.liveStreamingDetails?.actualStartTime || ""),
+               activeLiveChatId:item.liveStreamingDetails?.activeLiveChatId || null
+            } : null
+         };
+      }catch(error){
+         console.error("error fetching video by id:",error);
+         throw error;
+      }
+   }
+
+   // Fetch messages from an active live chat
+   async getActiveLiveChatMessages(liveChatId: string) {
+      try {
+         const res = await this.youtube.liveChatMessages.list({
+            liveChatId: liveChatId,
+            part: ['snippet', 'authorDetails'],
+            maxResults: 200
+         });
+
+         const items = res.data.items || [];
+         return items.map((item: any) => {
+            const authorDetails = item.authorDetails;
+            const snippet = item.snippet;
+            
+            return {
+               timestamp: snippet?.publishedAt ? new Date(snippet.publishedAt).getTime() : null,
+               time_in_video: null,
+               author: authorDetails?.displayName,
+               message: snippet?.displayMessage || snippet?.textMessageDetails?.messageText,
+               is_streamer: authorDetails?.isChatOwner || authorDetails?.isChatModerator || false,
+               author_id: authorDetails?.channelId
+            };
+         });
+      } catch (error) {
+         console.error("Error fetching active live chat messages:", error);
+         throw error;
+      }
+   }
+
+
+   // get comments by video id
+   async getAllPastComments(videoId: string, channelLink?: string) {
+    let allComments: any[] = [];
+    let nextPageToken: string | undefined = undefined;
+    const targetChannelId = generateChannelId(channelLink);
+    try {
+      // Loop through up to 5 pages (500 comments max to protect your quota)
+      for (let i = 0; i < 5; i++) {
+        const response:any = await this.youtube.commentThreads.list({
+          part: ['snippet'],
+          videoId: videoId,
+          maxResults: 100, // Max permitted per network request
+          pageToken: nextPageToken,
+          order: 'time',   // Fetch newest or chronological order
+        });
+
+        const items:any = response.data.items || [];
+        
+        const parsed = items.map((item:any) => {
+          const topComment = item.snippet?.topLevelComment?.snippet;
+          return {
+            id: item.id,
+            author: topComment?.authorDisplayName,
+            message: topComment?.textDisplay,
+            publishedAt: topComment?.publishedAt,
+            // Compares comment author's ID directly against the streamer's channel ID
+            isStreamer: topComment?.authorChannelId?.value === targetChannelId,
+          };
+        });
+
+        allComments = [...allComments, ...parsed];
+        nextPageToken = response.data.nextPageToken;
+
+        // Break early if there are no more pages left to scroll through
+        if (!nextPageToken) break;
+      }
+
+      return allComments;
+
+    } catch (error) {
+      console.error('Failed official comment pull sequence:', error);
+      throw error;
+    }
+  }
+
+   
+
+}
+
+
