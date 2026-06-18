@@ -97,12 +97,20 @@ def get_archived_chat_ytdlp(video_url):
 
 def get_archived_chat(video_url):
     try:
+        sys.stderr.write("Initializing chat-downloader...\n")
+        sys.stderr.flush()
         # Try chat-downloader first
         downloader = ChatDownloader()
         chat = downloader.get_chat(video_url)
         
         messages = []
+        count = 0
         for message in chat:
+            count += 1
+            if count % 100 == 0:
+                sys.stderr.write(f"Parsed {count} messages...\n")
+                sys.stderr.flush()
+                
             is_streamer = 'owner' in message.get('author', {}).get('badges', [])
             
             messages.append({

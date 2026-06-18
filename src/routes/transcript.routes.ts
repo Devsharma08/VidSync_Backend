@@ -9,15 +9,18 @@ const transcriptService = new TranscriptService();
 const dataProcessor = new DataProcessorService();
 const aiSummarizer = new AiSummarizerService();
 
+// optimisation ideas - 1. cache getFullvideoTranscript()  
+
 router.post('/transcript', async (req: Request, res: Response): Promise<void> => {
    try {
-      const { url } = req.body;
+      const { url,channelLink } = req.body;
       if (!url) {
          res.status(400).json({ error: 'Missing url' });
          return;
       }
       const transcript = await transcriptService.getFullVideoTranscript(url);
       const {language} = detectLanguage(transcript.fullCaptionText.substring(0,500));
+      console.log(language);
       const targetLanguage = 'en';
       const translatedText = await translateText(transcript.fullCaptionText,targetLanguage);
       res.json({success:true,...transcript,translatedText});

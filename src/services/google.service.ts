@@ -87,35 +87,45 @@ export class YoutubeService{
    }
 
 
-   // get comments by video id
-   async getAllPastComments(videoId: string, channelLink?: string) {
-    let allComments: any[] = [];
-    let nextPageToken: string | undefined = undefined;
-    const targetChannelId = generateChannelId(channelLink);
-    try {
-      // Loop through up to 5 pages (500 comments max to protect your quota)
-      for (let i = 0; i < 5; i++) {
-        const response:any = await this.youtube.commentThreads.list({
-          part: ['snippet'],
-          videoId: videoId,
-          maxResults: 100, // Max permitted per network request
-          pageToken: nextPageToken,
-          order: 'time',   // Fetch newest or chronological order
-        });
+    // get comments by video id
+    async getAllPastLiveComments(videoId: string, streamerChannelId?: string) {
+     let allComments: any[] = [];
+     let nextPageToken: string | undefined = undefined;
+     try {
+       // Loop through up to 5 pages (500 comments max to protect your quota)
+       for (let i = 0; i < 5; i++) {
 
-        const items:any = response.data.items || [];
-        
-        const parsed = items.map((item:any) => {
-          const topComment = item.snippet?.topLevelComment?.snippet;
-          return {
-            id: item.id,
-            author: topComment?.authorDisplayName,
-            message: topComment?.textDisplay,
-            publishedAt: topComment?.publishedAt,
-            // Compares comment author's ID directly against the streamer's channel ID
-            isStreamer: topComment?.authorChannelId?.value === targetChannelId,
-          };
-        });
+         const response:any = await this.youtube.commentThreads.list({
+           part: ['snippet','replies'],
+           videoId: videoId,
+           maxResults: 100,
+           pageToken: nextPageToken,
+           order: 'time',   // Fetch newest or chronological order
+         });
+
+         const items:any = response.data.items || [];
+         
+         const parsed = items.map((item:any) => {
+           const topComment = item.snippet?.topLevelComment?.snippet;
+           return {
+             id: item.id,
+             author: topComment?.authorDisplayName,
+             message: topComment?.textDisplay,
+             publishedAt: topComment?.publishedAt,
+             // Compares comment author's ID directly against the streamer's channel ID
+             isStreamer: streamerChannelId ? (topComment?.authorChannelId?.value === streamerChannelId) : false,
+             replies:item.replies?.comments.map((reply:any)=>{
+                const replySnippet = reply.snippet;
+                return{
+                   id: reply.id,
+                   message: replySnippet?.textDisplay,
+                   author: replySnippet?.authorDisplayName,
+                   publishedAt: replySnippet?.publishedAt,
+                   isStreamer: streamerChannelId ? (replySnippet?.authorChannelId?.value === streamerChannelId) : false
+                }
+             })
+           };
+         });
 
         allComments = [...allComments, ...parsed];
         nextPageToken = response.data.nextPageToken;
@@ -123,7 +133,7 @@ export class YoutubeService{
         // Break early if there are no more pages left to scroll through
         if (!nextPageToken) break;
       }
-
+      console.log("comments from google services : ",allComments);
       return allComments;
 
     } catch (error) {

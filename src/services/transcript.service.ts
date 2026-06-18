@@ -1,13 +1,24 @@
 import { YoutubeTranscript } from "youtube-transcript";
 import { extractVideoId } from "../utils/youtube-parser";
-
+import { YoutubeService } from "./google.service";
 interface TimelineSegment {
    text: string;
    startInSeconds: number;
    durationInSeconds: number;
 }
 
+// YoutubeTranscript.fetchTranscript return type is [
+//   {
+//     text: string;
+//     duration: number;
+//     offset: number;
+//     lang:string; // only for auto generated 
+//   }
+// ]
+
+
 export class TranscriptService {
+   youtubeService = new YoutubeService();
    async getFullVideoTranscript(url: string): Promise<{ videoId: string, totalTextLength: number, fullCaptionText: string, timelineSegments: TimelineSegment[] }> {
       try {
          const videoId = extractVideoId(url);
@@ -16,10 +27,19 @@ export class TranscriptService {
          }
          // fetch the text array from youtube
          const transcript = await YoutubeTranscript.fetchTranscript(videoId);
+         // console.log("transcript text from transcript service : ",transcript);
 
          if (!transcript || transcript.length === 0) {
             throw new Error("No transcript found for video id");
          }
+
+         // fetching comments from the youtube video using youtube api for deep understanding of the video
+         const comments = await this.youtubeService.getAllPastLiveComments(videoId);
+         console.log("comments from transcript service : ",comments);
+
+         // task - on success will match the o/p with chat for reference for doubts and some other info will figure out later
+         
+
          const fullText = transcript.map((item) => {
             return item.text
                .replace(/&#39;/g, "'")
@@ -34,11 +54,16 @@ export class TranscriptService {
             videoId,
             totalTextLength: fullText.length,
             fullCaptionText: fullText,
-            timelineSegments: transcript.map((segment) => ({
+            timelineSegments: transcript.map((segment) => {
+               const startInSeconds = Math.floor(segment.offset / 1000);
+               const durationInSeconds = Math.floor(segment.duration / 1000);
+               return{
                text: segment.text.replace(/&#39;/g, "'").trim(),
-               startInSeconds: Math.floor(segment.offset / 1000),
-               durationInSeconds: Math.floor(segment.duration / 1000),
-            })),
+               startInSeconds: startInSeconds,
+               durationInSeconds: durationInSeconds,
+               totalTimeInSeconds:startInSeconds+durationInSeconds
+               }
+            }),
 
          }
       } catch (error:any) {
