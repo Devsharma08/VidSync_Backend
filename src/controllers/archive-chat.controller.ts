@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import { extractVideoId } from '../utils/youtube-parser';
+import { extractVideoId, generateChannelId } from '../utils/youtube-parser';
 import { YoutubeService } from '../services/google.service';
 
 const videoService = new YoutubeService();
@@ -65,7 +65,7 @@ export async function getPastStreamerChat(url: string): Promise<any[]> {
  */
 export async function getChatOrComments(req: Request, res: Response): Promise<void> {
    try {
-      const { url, channelLink, onlyStreamerChat } = req.body;
+      const { url, channelLink, onlyStreamerChat } = req.body || {};
       const videoId = extractVideoId(url);
       if (!videoId) {
          res.status(400).json({ error: 'Missing standard stream url address parameter' });
@@ -130,7 +130,8 @@ export async function getChatOrComments(req: Request, res: Response): Promise<vo
       // Fallback: Fetch standard comments via YouTube API
       try {
          console.log(`[archiveChatController.getChatOrComments] Fallback: Fetching standard comments for ${videoId}`);
-         const regularComments = await videoService.getAllPastComments(videoId, channelLink);
+         const streamerChannelId = channelLink ? generateChannelId(channelLink) : undefined;
+         const regularComments = await videoService.getAllPastLiveComments(videoId, streamerChannelId);
          const streamerComments = regularComments.filter((c: any) => c.isStreamer);
 
          res.json({
@@ -140,8 +141,14 @@ export async function getChatOrComments(req: Request, res: Response): Promise<vo
             data: streamerComments
          });
       } catch (fallbackError: any) {
-         console.error("[archiveChatController.getChatOrComments] Fallback failed:", fallbackError);
-         res.status(500).json({ error: fallbackError.message });
+         console.warn("[archiveChatController.getChatOrComments] Fallback failed (comments may be disabled):", fallbackError.message);
+         res.json({
+            type: 'standard_video_comments_disabled',
+            totalCommentsScanned: 0,
+            streamerCommentCount: 0,
+            data: [],
+            warning: fallbackError.message
+         });
       }
 
    } catch (error: any) {

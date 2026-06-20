@@ -8,6 +8,9 @@ import archiveRouter from './routes/archive.routes';
 import transcriptRouter from './routes/transcript.routes';
 import aiRouter from './routes/ai.routes'
 
+import {apiReference} from '@scalar/express-api-reference';
+import { getOpenAPIDocument } from './utils/openapi';
+
 dotenv.config({
   path:'.env'
 })
@@ -16,6 +19,13 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 
 app.use(express.json());
+
+app.use('/reference',apiReference({
+  spec:{
+    content:getOpenAPIDocument(),
+  }
+}));
+
 app.use(cors({
   origin:'http://localhost:3000'
 }))

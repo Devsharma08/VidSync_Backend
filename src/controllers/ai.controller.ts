@@ -12,7 +12,7 @@ const searchService = new SearchService();
  */
 export async function summarizeTranscript(req: Request, res: Response): Promise<void> {
    try {
-     const { url } = req.body;
+     const { url } = req.body || {};
      
      res.setHeader('Content-Type', 'text/event-stream');
      res.setHeader('Cache-Control', 'no-cache');
@@ -40,7 +40,7 @@ export async function summarizeTranscript(req: Request, res: Response): Promise<
      res.write(`data:${JSON.stringify({
        status: 'completed',
        videoId: transcriptData.videoId,
-       summary: summaryResult
+       summary: summaryResult.join('\n\n')
      })}\n\n`);
      
    } catch (error: any) {
@@ -56,7 +56,7 @@ export async function summarizeTranscript(req: Request, res: Response): Promise<
  */
 export async function queryVideoTimeline(req: Request, res: Response): Promise<void> {
   try {
-    const { url, question, timelineBlocks } = req.body;
+    const { url, question, timelineBlocks } = req.body || {};
     
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');

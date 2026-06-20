@@ -18,7 +18,7 @@ const embeddingService = new EmbeddingService();
  */
 export async function getVideoDetails(req: Request, res: Response): Promise<void> {
    try {
-      const url = req.body.url;
+      const url = req.body?.url;
       if (!url) {
          res.status(400).json({ message: "URL is required" });
          return;
@@ -63,7 +63,7 @@ export async function getVideoDetails(req: Request, res: Response): Promise<void
  */
 export async function analyzeVideo(req: Request, res: Response): Promise<void> {
    try {
-      const { url, channelLink } = req.body;
+      const { url, channelLink } = req.body || {};
       if (!url) {
          res.status(400).json({ message: "URL is required" });
          return;

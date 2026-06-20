@@ -107,24 +107,23 @@ export class YoutubeService{
          
          const parsed = items.map((item:any) => {
            const topComment = item.snippet?.topLevelComment?.snippet;
-           return {
-             id: item.id,
-             author: topComment?.authorDisplayName,
-             message: topComment?.textDisplay,
-             publishedAt: topComment?.publishedAt,
-             // Compares comment author's ID directly against the streamer's channel ID
-             isStreamer: streamerChannelId ? (topComment?.authorChannelId?.value === streamerChannelId) : false,
-             replies:item.replies?.comments.map((reply:any)=>{
-                const replySnippet = reply.snippet;
-                return{
-                   id: reply.id,
-                   message: replySnippet?.textDisplay,
-                   author: replySnippet?.authorDisplayName,
-                   publishedAt: replySnippet?.publishedAt,
-                   isStreamer: streamerChannelId ? (replySnippet?.authorChannelId?.value === streamerChannelId) : false
-                }
-             })
-           };
+            return {
+              id: item.id,
+              author: topComment?.authorDisplayName,
+              message: topComment?.textDisplay,
+              publishedAt: topComment?.publishedAt,
+              isStreamer: streamerChannelId ? (topComment?.authorChannelId?.value === streamerChannelId) : false,
+              replies: item.replies?.comments?.map((reply: any) => {
+                 const replySnippet = reply.snippet;
+                 return {
+                    id: reply.id,
+                    message: replySnippet?.textDisplay,
+                    author: replySnippet?.authorDisplayName,
+                    publishedAt: replySnippet?.publishedAt,
+                    isStreamer: streamerChannelId ? (replySnippet?.authorChannelId?.value === streamerChannelId) : false
+                 };
+              }) || []
+            };
          });
 
         allComments = [...allComments, ...parsed];
@@ -136,7 +135,12 @@ export class YoutubeService{
       console.log("comments from google services : ",allComments);
       return allComments;
 
-    } catch (error) {
+    } catch (error: any) {
+      const errorMsg = error?.message || "";
+      if (errorMsg.includes("disabled comments") || errorMsg.includes("commentsDisabled")) {
+         console.warn(`[googleService] Comments are disabled for video ${videoId}. Returning empty comments.`);
+         return [];
+      }
       console.error('Failed official comment pull sequence:', error);
       throw error;
     }
