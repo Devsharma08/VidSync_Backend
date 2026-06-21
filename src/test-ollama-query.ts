@@ -9,7 +9,7 @@ const ollamaAgent = new Agent({
 
 const ollama = new Ollama({
   host: process.env.OLLAMA_HOST || 'http://127.0.0.1:11434',
-  fetch: (input: any, init: any) => undiciFetch(input, { ...init, dispatcher: ollamaAgent })
+  fetch: ((input: any, init: any) => undiciFetch(input, { ...init, dispatcher: ollamaAgent })) as any
 });
 
 async function test() {
