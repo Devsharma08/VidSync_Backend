@@ -52,29 +52,36 @@ export class TranscriptService {
          if (proxyUrl || cleanCookie || youtubeUA) {
             const proxyAgent = proxyUrl ? new ProxyAgent(proxyUrl) : undefined;
             fetchConfig = {
-               fetch: (url: string, init: any) => {
+               fetch: async (url: string, init: any) => {
                   let requestUrl = url;
                   // Force XML formatting if it's a timedtext request and missing fmt=srv3
                   if (url.includes("/api/timedtext") && !url.includes("&fmt=srv3")) {
                      requestUrl = `${url}&fmt=srv3`;
                   }
 
-                  const isInnerTube = url.includes("/youtubei/v1/player");
-                  
-                  // Extract original User-Agent if any
-                  let originalUA: string | undefined;
-                  if (init?.headers) {
-                     for (const [key, value] of Object.entries(init.headers)) {
-                        if (key.toLowerCase() === "user-agent") {
-                           originalUA = value as string;
-                           break;
-                        }
-                     }
+                  // Resolve relative URLs
+                  if (requestUrl.startsWith("/")) {
+                     requestUrl = `https://www.youtube.com${requestUrl}`;
                   }
 
-                  let resolvedUA = youtubeUA || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
-                  if (isInnerTube) {
-                     resolvedUA = originalUA || "com.google.android.youtube/20.10.38 (Linux; U; Android 14)";
+                  const isInnerTube = url.includes("/youtubei/v1/player");
+                  
+                  // We use the mobile UA for both watch pages and InnerTube if we force MWEB
+                  let resolvedUA = youtubeUA || "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Mobile Safari/537.36";
+                  
+                  let bodyOverride = init?.body;
+                  if (isInnerTube && init?.body) {
+                     try {
+                        const bodyObj = JSON.parse(init.body);
+                        if (bodyObj.context?.client) {
+                           // Force MWEB client which is known to work with cookies & headers
+                           bodyObj.context.client.clientName = "MWEB";
+                           bodyObj.context.client.clientVersion = "2.20240308.01.00";
+                           bodyOverride = JSON.stringify(bodyObj);
+                        }
+                     } catch (e) {
+                        // ignore
+                     }
                   }
 
                   const headers: Record<string, string> = {
@@ -100,11 +107,42 @@ export class TranscriptService {
                      }
                   }
 
-                  return fetch(requestUrl, {
-                     ...init,
-                     headers,
-                     ...(proxyAgent && { dispatcher: proxyAgent })
-                  } as any);
+                  try {
+                     const response = await fetch(requestUrl, {
+                        ...init,
+                        body: bodyOverride,
+                        headers,
+                        ...(proxyAgent && { dispatcher: proxyAgent })
+                     } as any);
+
+                     let text = await response.text();
+                     
+                     // Intercept /youtubei/v1/player response to rewrite relative baseUrl paths
+                     if (isInnerTube && response.status === 200) {
+                        try {
+                           const data = JSON.parse(text);
+                           const captionTracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+                           if (Array.isArray(captionTracks)) {
+                              for (const track of captionTracks) {
+                                 if (track.baseUrl && track.baseUrl.startsWith("/")) {
+                                    track.baseUrl = "https://www.youtube.com" + track.baseUrl;
+                                 }
+                              }
+                           }
+                           text = JSON.stringify(data);
+                        } catch (e) {
+                           // ignore
+                        }
+                     }
+
+                     return new Response(text, {
+                        status: response.status,
+                        statusText: response.statusText,
+                        headers: response.headers
+                     });
+                  } catch (err) {
+                     throw err;
+                  }
                }
             };
          }

@@ -76,10 +76,12 @@ async function testClient(label: string, clientName: string, clientVersion: stri
          const tracks = data.captions.playerCaptionsTracklistRenderer?.captionTracks;
          console.log("Found caption tracks:", !!tracks);
          if (tracks && tracks.length > 0) {
-            console.log("First track URL:", tracks[0].baseUrl);
+            const rawUrl = tracks[0].baseUrl;
+            const absoluteUrl = rawUrl.startsWith("/") ? "https://www.youtube.com" + rawUrl : rawUrl;
+            console.log("First track URL:", absoluteUrl);
             
             console.log("Fetching timedtext URL...");
-            const timedtextResp = await fetch(tracks[0].baseUrl + "&fmt=srv3", {
+            const timedtextResp = await fetch(absoluteUrl + "&fmt=srv3", {
                headers: {
                   'User-Agent': userAgent,
                   'Referer': 'https://www.youtube.com/',
