@@ -9,7 +9,9 @@ async function runTests() {
 
    console.log("\n=== Test 4: Cookie Fetch (No Proxy) ===");
    const youtubeCookie = process.env.YOUTUBE_COOKIE;
-   const cleanCookie = youtubeCookie ? youtubeCookie.replace(/[\r\n]+/g, "").trim() : undefined;
+   const cleanCookie = youtubeCookie 
+      ? youtubeCookie.replace(/^["']|["']$/g, "").replace(/[\r\n]+/g, "").trim() 
+      : undefined;
    if (!cleanCookie) {
       console.error("Test 4 FAILED: YOUTUBE_COOKIE is not set in .env");
       return;
@@ -27,6 +29,8 @@ async function runTests() {
             const headers = {
                ...(init?.headers || {}),
                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+               "Origin": "https://www.youtube.com",
+               "Referer": "https://www.youtube.com/",
                "Cookie": cleanCookie
             };
             console.log(`[Fetch Request] URL: ${requestUrl}`);

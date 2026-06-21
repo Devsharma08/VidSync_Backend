@@ -30,7 +30,9 @@ export class TranscriptService {
 
          const proxyUrl = process.env.PROXY_URL;
          const youtubeCookie = process.env.YOUTUBE_COOKIE;
-         const cleanCookie = youtubeCookie ? youtubeCookie.replace(/[\r\n]+/g, "").trim() : undefined;
+         const cleanCookie = youtubeCookie 
+            ? youtubeCookie.replace(/^["']|["']$/g, "").replace(/[\r\n]+/g, "").trim() 
+            : undefined;
          let fetchConfig = {};
 
          if (proxyUrl || cleanCookie) {
@@ -40,6 +42,8 @@ export class TranscriptService {
                   const headers = {
                      ...(init?.headers || {}),
                      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                     "Origin": "https://www.youtube.com",
+                     "Referer": "https://www.youtube.com/",
                      ...(cleanCookie && { "Cookie": cleanCookie })
                   };
                   return fetch(url, {
