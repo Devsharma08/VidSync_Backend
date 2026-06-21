@@ -1,4 +1,8 @@
 import { YoutubeTranscript } from "youtube-transcript";
+import { ProxyAgent } from "undici";
+import * as dotenv from "dotenv";
+
+dotenv.config();
 
 async function runTests() {
    const videoId = "afLeOefHKG4";
@@ -30,6 +34,28 @@ async function runTests() {
       console.log("Test 2 SUCCESS! Segments:", res.length);
    } catch (e: any) {
       console.error("Test 2 FAILED:", e.message);
+   }
+
+   console.log("\n=== Test 3: Proxy Fetch ===");
+   const proxyUrl = process.env.PROXY_URL;
+   if (!proxyUrl) {
+      console.error("Test 3 FAILED: PROXY_URL is not set in .env");
+      return;
+   }
+   console.log("Using proxy:", proxyUrl);
+   try {
+      const proxyAgent = new ProxyAgent(proxyUrl);
+      const res = await YoutubeTranscript.fetchTranscript(videoId, {
+         fetch: (url, init) => {
+            return fetch(url, {
+               ...init,
+               dispatcher: proxyAgent
+            });
+         }
+      });
+      console.log("Test 3 SUCCESS! Segments:", res.length);
+   } catch (e: any) {
+      console.error("Test 3 FAILED:", e.message);
    }
 }
 

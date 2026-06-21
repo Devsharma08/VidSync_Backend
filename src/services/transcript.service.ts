@@ -1,6 +1,8 @@
 import { YoutubeTranscript } from "youtube-transcript";
 import { extractVideoId } from "../utils/youtube-parser";
 import { YoutubeService } from "./google.service";
+import { ProxyAgent } from "undici";
+
 interface TimelineSegment {
    text: string;
    startInSeconds: number;
@@ -25,8 +27,24 @@ export class TranscriptService {
          if (!videoId) {
             throw new Error("No valid videoId found");
          }
+
+         const proxyUrl = process.env.PROXY_URL;
+         let fetchConfig = {};
+         if (proxyUrl) {
+            console.log(`[TranscriptService] Using proxy: ${proxyUrl}`);
+            const proxyAgent = new ProxyAgent(proxyUrl);
+            fetchConfig = {
+               fetch: (url: string, init: any) => {
+                  return fetch(url, {
+                     ...init,
+                     dispatcher: proxyAgent
+                  });
+               }
+            };
+         }
+
          // fetch the text array from youtube
-         const transcript = await YoutubeTranscript.fetchTranscript(videoId);
+         const transcript = await YoutubeTranscript.fetchTranscript(videoId, fetchConfig);
          // console.log("transcript text from transcript service : ",transcript);
 
          if (!transcript || transcript.length === 0) {

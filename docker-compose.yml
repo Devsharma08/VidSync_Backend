@@ -37,6 +37,7 @@ services:
       - YT_V3_API_KEY=${YT_V3_API_KEY}
       - GROK_API_KEY=${GROK_API_KEY}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - PROXY_URL=${PROXY_URL}
     depends_on:
       - ollama
     restart: always
