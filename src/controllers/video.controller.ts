@@ -130,7 +130,7 @@ export async function analyzeVideo(req: Request, res: Response): Promise<void> {
          try {
             console.log(`[videoController.analyzeVideo] Fetching standard comments fallback for ID ${videoId}`);
             res.write(`data:${JSON.stringify({ message: "Fetching standard comments" })}\n\n`);
-            const regularComments = await videoService.getAllPastLiveComments(videoId, videoDetails.channelId);
+            const regularComments = await videoService.getAllPastLiveComments(videoId, videoDetails.channelId || undefined);
             commentsOrChat = regularComments.filter(
                (c: any) => c.isStreamer || (c.replies && c.replies.some((r: any) => r.isStreamer))
             );
