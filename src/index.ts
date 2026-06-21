@@ -1,7 +1,15 @@
 import express, { Request, Response } from 'express';
 import dotenv from 'dotenv'
 import cors from 'cors';
+import { setGlobalDispatcher, Agent } from 'undici';
 
+// Increase fetch timeouts globally to prevent HeadersTimeoutError (UND_ERR_HEADERS_TIMEOUT)
+// when waiting for local Ollama LLM inference/embedding generations.
+setGlobalDispatcher(new Agent({
+  connectTimeout: 60000,
+  headersTimeout: 300000,
+  bodyTimeout: 300000,
+}));
 
 import vedioRouter from './routes/video.routes';
 import archiveRouter from './routes/archive.routes';
