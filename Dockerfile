@@ -20,8 +20,10 @@ ENV NODE_OPTIONS="--max-old-space-size=1800"
 COPY package.json pnpm-lock.yaml* ./
 
 
-# Install node dependencies
-RUN npm install -g pnpm && pnpm install --frozen-lockfile || npm install
+# Install node dependencies using corepack to avoid memory overhead of global npm install
+RUN corepack enable && \
+    (pnpm install --frozen-lockfile --child-concurrency 1 || \
+     NODE_OPTIONS="--max-old-space-size=1024" npm install)
 
 # Copy source code
 COPY . .
