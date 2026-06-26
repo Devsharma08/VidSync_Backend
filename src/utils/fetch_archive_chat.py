@@ -126,6 +126,8 @@ def get_archived_chat_ytdlp(video_url, cookies_path=None, proxy_url=None, user_a
             raise Exception(f"yt-dlp execution failed (code {result.returncode}): {result.stderr.strip()}")
         
         if not os.path.exists(expected_file):
+            sys.stderr.write(f"[yt-dlp diagnostic] stdout:\n{result.stdout}\nstderr:\n{result.stderr}\n")
+            sys.stderr.flush()
             raise Exception("yt-dlp execution did not generate a live chat JSON file")
             
         return parse_yt_dlp_chat(expected_file)
@@ -139,6 +141,11 @@ def get_archived_chat(video_url):
         sys.stderr.write(f"[Python Scraper] Node version: {res.stdout.strip()} (err: {res.stderr.strip()})\n")
     except Exception as e:
         sys.stderr.write(f"[Python Scraper] Node check failed: {str(e)}\n")
+    try:
+        res = subprocess.run(["deno", "--version"], capture_output=True, text=True)
+        sys.stderr.write(f"[Python Scraper] Deno version:\n{res.stdout.strip()}\n")
+    except Exception as e:
+        sys.stderr.write(f"[Python Scraper] Deno check failed: {str(e)}\n")
     sys.stderr.write(f"[Python Scraper] PATH: {os.environ.get('PATH')}\n")
     sys.stderr.flush()
 
