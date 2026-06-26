@@ -126,7 +126,7 @@ def get_archived_chat_ytdlp(video_url, cookies_path=None, proxy_url=None, user_a
             "--output", temp_output_prefix,
             "--extractor-args", "youtube:player-client=web_safari,android",
             "--no-check-certificates",
-            "--gl", "US",
+            "--geo-bypass-country", "US",
             "--legacy-server-connect"
         ]
         if cookies_path:
