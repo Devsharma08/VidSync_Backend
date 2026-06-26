@@ -14,22 +14,31 @@ export async function summarizeTranscript(req: Request, res: Response): Promise<
    try {
      const { url } = req.body || {};
      
-     res.setHeader('Content-Type', 'text/event-stream');
-     res.setHeader('Cache-Control', 'no-cache');
-     res.setHeader('Connection', 'keep-alive');
+     res.status(200).writeHead(200, {
+       'Content-Type': 'text/event-stream',
+       'Cache-Control': 'no-cache, no-store, must-revalidate',
+       'Pragma': 'no-cache',
+       'Expires': '0',
+       'Connection': 'keep-alive',
+       'X-Accel-Buffering': 'no'
+     });
+     if (typeof (res as any).flushHeaders === 'function') (res as any).flushHeaders();
      
      if (!url) {
        res.write(`data:${JSON.stringify({ status: 'failure', message: 'Missing video url parameter' })}\n\n`);
+       if (typeof (res as any).flush === 'function') (res as any).flush();
        res.end();
        return;
      }
  
      res.write(`data:${JSON.stringify({ status: 'progress', message: 'Starting process', percentage: 0, currentChunk: 0, totalChunks: 0 })}\n\n`);
+     if (typeof (res as any).flush === 'function') (res as any).flush();
  
      const transcriptData = await transcriptService.getFullVideoTranscript(url);
      
      const summaryResult = await localAi.summarizeTranscript(transcriptData.fullCaptionText, (progress) => {
        res.write(`data:${JSON.stringify(progress)}\n\n`);
+       if (typeof (res as any).flush === 'function') (res as any).flush();
        if (progress.status === 'progress' && progress.percentage) {
          console.log(`${progress.percentage}% progress`);
        } else if (progress.status === 'token') {
@@ -42,10 +51,12 @@ export async function summarizeTranscript(req: Request, res: Response): Promise<
        videoId: transcriptData.videoId,
        summary: summaryResult.join('\n\n')
      })}\n\n`);
+     if (typeof (res as any).flush === 'function') (res as any).flush();
      
    } catch (error: any) {
      console.error("[aiController.summarizeTranscript] Error:", error.message);
      res.write(`data:${JSON.stringify({ status: 'failure', message: error.message, percentage: 0, currentChunk: 0, totalChunks: 0 })}\n\n`);
+     if (typeof (res as any).flush === 'function') (res as any).flush();
    } finally {
      res.end();
    }
@@ -58,12 +69,19 @@ export async function queryVideoTimeline(req: Request, res: Response): Promise<v
   try {
     const { url, question, timelineBlocks } = req.body || {};
     
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
+    res.status(200).writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no'
+    });
+    if (typeof (res as any).flushHeaders === 'function') (res as any).flushHeaders();
 
     if (!url || !question) {
       res.write(`data: ${JSON.stringify({ status: 'error', text: 'Missing url or question fields' })}\n\n`);
+      if (typeof (res as any).flush === 'function') (res as any).flush();
       res.end();
       return;
     }
@@ -97,11 +115,13 @@ export async function queryVideoTimeline(req: Request, res: Response): Promise<v
 
     await localAi.queryVideoContext(searchContext, question, (progress) => {
       res.write(`data: ${JSON.stringify(progress)}\n\n`);
+      if (typeof (res as any).flush === 'function') (res as any).flush();
     });
 
   } catch (error: any) {
     console.error("[aiController.queryVideoTimeline] Error:", error.message);
     res.write(`data: ${JSON.stringify({ status: 'error', text: error.message })}\n\n`);
+    if (typeof (res as any).flush === 'function') (res as any).flush();
   } finally {
     res.end();
   }
