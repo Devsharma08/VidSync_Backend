@@ -225,7 +225,7 @@ Question: ${userQuestion}`
         });
       }
 
-      streamChunks({ text: fullResponse, status: 'completed' });
+      streamChunks({ status: 'completed' });
       return fullResponse;
 
     } catch (error: any) {

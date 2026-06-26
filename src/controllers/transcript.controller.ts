@@ -2,9 +2,11 @@ import { Request, Response } from 'express';
 import { TranscriptService } from '../services/transcript.service';
 import { translateText, detectLanguage } from '../utils/youtube-parser';
 import { DataProcessorService } from '../services/data-processor.service';
+import { YoutubeService } from '../services/google.service';
 
 const transcriptService = new TranscriptService();
 const dataProcessor = new DataProcessorService();
+const youtubeService = new YoutubeService();
 
 /**
  * Controller to fetch full video transcript and translate it if needed, streamed via SSE.
@@ -80,8 +82,17 @@ export async function processTranscriptOutcomes(req: Request, res: Response): Pr
       const transcriptData = await transcriptService.getFullVideoTranscript(url);
       const rawText = transcriptData.fullCaptionText;
 
+      res.write(`data:${JSON.stringify({ status: 'progress', message: 'Fetching video details' })}\n\n`);
+      let videoDescription = "";
+      try {
+         const videoDetails = await youtubeService.getVideoById(transcriptData.videoId);
+         videoDescription = videoDetails.description || "";
+      } catch (err: any) {
+         console.warn(`[transcriptController.processTranscriptOutcomes] Failed to fetch video details: ${err.message}`);
+      }
+
       res.write(`data:${JSON.stringify({ status: 'progress', message: 'Extracting semantic keyword tags' })}\n\n`);
-      const extractedTags = await dataProcessor.extractKeywords(rawText);
+      const extractedTags = await dataProcessor.extractKeywords(rawText, 8, videoDescription);
 
       res.write(`data:${JSON.stringify({ status: 'progress', message: 'Generating auto chapters and titles' })}\n\n`);
       const autoChapters = await dataProcessor.generateAutoChapters(transcriptData.timelineSegments);

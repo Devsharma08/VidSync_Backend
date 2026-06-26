@@ -1,6 +1,6 @@
 import { Ollama } from 'ollama';
 import { fetch as undiciFetch, Agent } from 'undici';
-import { cosineSimilarity, detectLanguage, translateText } from '../utils/youtube-parser';
+import { cosineSimilarity } from '../utils/youtube-parser';
 
 const ollamaAgent = new Agent({
   connectTimeout: 60000,
@@ -21,6 +21,10 @@ export interface TimelineSegment {
 
 export class DataProcessorService {
   private modelName = 'gemma3:1b';
+
+  private cosineSimilarity(vecA: number[], vecB: number[]): number {
+    return cosineSimilarity(vecA, vecB);
+  }
 
   private async generateEmbedding(text: string): Promise<number[]> {
     const apiKey = process.env.GEMINI_API_KEY;
@@ -77,20 +81,9 @@ export class DataProcessorService {
     throw new Error("Invalid response format received from Gemini batch embedding API");
   }
 
-  public async extractKeywords(text: string, maxTags: number = 8): Promise<string[]> {
-    let workingText = text;
-    try {
-      const sample = text.substring(0, 1000);
-      const { language } = detectLanguage(sample);
-      if (language !== 'en') {
-        console.log(`[DataProcessorService] Non-English language detected: "${language}". Translating first 8000 chars for keyword extraction...`);
-        workingText = await translateText(text.substring(0, 8000), 'en');
-      }
-    } catch (langErr: any) {
-      console.warn(`[DataProcessorService] Language detection or translation failed, using original text:`, langErr.message);
-    }
-
+  public async extractKeywords(text: string, maxTags: number = 8, description?: string): Promise<string[]> {
     const stopWords = new Set([
+      // English stop words
       'the', 'is', 'and', 'a', 'to', 'in', 'it', 'you', 'of', 'for', 'on', 'with', 
       'this', 'that', 'by', 'an', 'your', 'from', 'we', 'are', 'i', 'me', 'my',
       'have', 'has', 'had', 'what', 'will', 'there', 'they', 'when', 'would', 'should',
@@ -105,16 +98,29 @@ export class DataProcessorService {
       'went', 'came', 'said', 'told', 'took', 'asked', 'called', 'made', 'saw', 'gave',
       'lived', 'upon', 'time', 'away', 'back', 'come', 'next', 'then', 'into', 'some',
       'down', 'first', 'about', 'again', 'very', 'must', 'should', 'would', 'could',
-      'guys', 'hello', 'hey', 'hi', 'everyone', 'ok', 'okay', 'yeah', 'yes', 'no', 'sure',
-      'thank', 'thanks', 'please', 'well', 'right', 'really', 'basically', 'actually', 
-      'sort', 'kind', 'maybe', 'probably', 'definitely', 'mean', 'like', 'stuff', 'thing', 
-      'things', 'something', 'anything', 'nothing', 'someone', 'anyone', 'everyone',
-      'talk', 'talking', 'tell', 'telling', 'say', 'saying', 'speak', 'speaking',
-      'video', 'channel', 'subscribe', 'like', 'comment', 'share', 'stream', 'live'
+      'guys', 'hello',
+
+      // Devanagari Hindi stop words & grammatical particles
+      'गाइस', 'हेलो', 'आपको', 'कितनी', 'क्या', 'आपका', 'मैंने', 'आपने', 'मुझे', 'हमारा', 'तुम्हारा',
+      'उनका', 'उसका', 'इसको', 'उसको', 'किया', 'दिया', 'लिया', 'रहा', 'रही', 'रहे', 'होता', 'होती',
+      'होते', 'होना', 'होने', 'करते', 'करना', 'करने', 'जाता', 'जाती', 'जाते', 'जाना', 'जाने',
+      'सकता', 'सकती', 'सकते', 'सकना', 'सकने', 'बारे', 'लिए', 'जैसे', 'वैसे', 'कैसे', 'ऐसे',
+      'यहाँ', 'वहाँ', 'कहाँ', 'जहाँ', 'अब', 'जब', 'तब', 'कब', 'और', 'तथा', 'एवं', 'या', 'अथवा',
+      'लेकिन', 'किन्तु', 'परन्तु', 'मगर', 'क्योंकि', 'इसलिए', 'ताकि', 'जिससे', 'जिसने', 'जिसको',
+      'जिसके', 'जिसकी', 'जिसमें', 'जिसपर', 'नहीं', 'कोई', 'कुछ', 'बहुत', 'सारे', 'सकता', 'सकते',
+
+      // Hinglish (Latin-transliterated Hindi) stop words & particles
+      'hai', 'hain', 'tha', 'thi', 'the', 'ho', 'kar', 'kya', 'kaha', 'kab', 'ab', 'jab', 'tab',
+      'aur', 'ya', 'lekin', 'magar', 'ki', 'ko', 'se', 'me', 'mein', 'pe', 'par', 'ne', 'toh',
+      'bhi', 'hi', 'hee', 'karke', 'karna', 'karne', 'diya', 'liya', 'gaya', 'gayi', 'gaye',
+      'jana', 'jane', 'sab', 'is', 'us', 'yeh', 'ye', 'wo', 'voh', 'wah', 'main', 'hum', 'tum',
+      'aap', 'mujhe', 'humein', 'tujhe', 'aapko', 'mera', 'meri', 'mere', 'hamara', 'hamari',
+      'hamare', 'tumhara', 'tumhari', 'tumhare', 'uska', 'uski', 'uske', 'unka', 'unki', 'unke',
+      'iske', 'iski', 'iska', 'inke', 'inki', 'inka'
     ]);
 
-    // Build frequency map from the working text
-    const words = workingText
+    // Build frequency map from the entire text
+    const words = text
       .toLowerCase()
       .replace(/\[[^\]]*\]/g, "")
       .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?"']/g, "")
@@ -176,13 +182,17 @@ export class DataProcessorService {
       candidates = Array.from(new Set([...highPicks, ...midPicks, ...lowPicks]));
     }
 
+    let rankedCandidates = candidates.slice(0, 15);
+
     // Semantic Vector Filtering using Cosine Similarity against the introduction anchor context
     const apiKey = process.env.GEMINI_API_KEY;
     if (apiKey && candidates.length > 0) {
       try {
-        console.log(`[DataProcessorService] running semantic cosine similarity tagging for ${candidates.length} candidates...`);
-        // We use the first 1,500 characters of the transcript as the anchor topic description
-        const anchorText = workingText.substring(0, 1500).trim();
+        let anchorText = (description && description.trim()) ? description.trim() : text.substring(0, 1500).trim();
+        if (anchorText.length > 4000) {
+          anchorText = anchorText.substring(0, 4000);
+        }
+        console.log(`[DataProcessorService] running semantic cosine similarity tagging for ${candidates.length} candidates using ${description ? 'video description' : 'first 1500 chars of transcript'} as anchor...`);
         const anchorEmbedding = await this.generateEmbedding(anchorText);
 
         if (anchorEmbedding && anchorEmbedding.length > 0) {
@@ -193,39 +203,34 @@ export class DataProcessorService {
             if (!wordEmbedding || wordEmbedding.length === 0) {
               return { word, score: 0 };
             }
-            const score = cosineSimilarity(anchorEmbedding, wordEmbedding);
+            const score = this.cosineSimilarity(anchorEmbedding, wordEmbedding);
             return { word, score };
           });
 
           // Sort by similarity descending
           scoredCandidates.sort((a, b) => b.score - a.score);
-          console.log(`[DataProcessorService] top semantic candidates:`, JSON.stringify(scoredCandidates.slice(0, 8), null, 2));
-
-          const resultTags = scoredCandidates
-            .slice(0, maxTags)
-            .map(item => item.word);
-
-          if (resultTags.length > 0) {
-            return resultTags;
-          }
+          rankedCandidates = scoredCandidates.map(item => item.word).slice(0, 15);
         }
       } catch (embedError: any) {
-        console.warn(`[DataProcessorService] Semantic embedding selection failed, falling back to local LLM:`, embedError.message);
+        console.warn(`[DataProcessorService] Semantic embedding selection failed, fallback to raw frequency:`, embedError.message);
       }
     }
 
-    // Fallback: local LLM prompt based cleanup on candidates list
+    // Use local LLM to translate candidates to English, filter filler words, and pick the best keywords
     try {
-      console.log(`[DataProcessorService] Fallback to local LLM keyword selection...`);
+      console.log(`[DataProcessorService] translating & filtering ${rankedCandidates.length} candidates via local LLM...`);
       const response = await ollama.chat({
         model: this.modelName,
         messages: [
           {
             role: 'user',
-            content: `Instructions: You are given a list of candidate words extracted from a video transcript. Filter out any common words, general verbs, adjectives, or conversational elements. Select and format up to 8 of the most relevant, descriptive nouns, topics, or names. Return ONLY a comma-separated list of these words. Do not include conversational remarks, introduction, or formatting (e.g. return: "aladdin, gold, thieves").
+            content: `Instructions: You are given a list of candidate words extracted from a video transcript. Some words may be in Devanagari/Hindi or other languages.
+1. Translate all non-English words to English (e.g. "रिज्यूे" -> "resume", "सीएसएस" -> "css", "बैकग्राउंड" -> "background").
+2. Filter out any common conversational filler words, pronouns, adjectives, or general verbs (like "guys", "hello", "what", "you", "me", "your", "my", "how", "this", "that").
+3. Select and return ONLY a comma-separated list of the top 8 most relevant, clean English keywords. Do NOT include conversational remarks, quotes, or formatting.
 
 Candidate Words:
-"${candidates.join(', ')}"`
+"${rankedCandidates.join(', ')}"`
           }
         ],
         options: {
@@ -241,10 +246,11 @@ Candidate Words:
         .filter(t => t.length > 2 && t.length < 20 && !t.includes(' '));
 
       if (extracted.length > 0) {
+        console.log(`[DataProcessorService] successfully generated tags:`, JSON.stringify(extracted.slice(0, maxTags)));
         return extracted.slice(0, maxTags);
       }
     } catch (err: any) {
-      console.warn('[DataProcessorService] Fallback local LLM keyword extraction failed, using raw frequency:', err.message);
+      console.warn('[DataProcessorService] Local LLM keyword cleanup failed, using raw frequency:', err.message);
     }
 
     // Ultimate Fallback: Return raw top high frequency words
