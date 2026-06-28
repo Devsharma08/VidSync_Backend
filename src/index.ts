@@ -1,5 +1,8 @@
 import express, { Request, Response } from 'express';
-import dotenv from 'dotenv'
+import dotenv from 'dotenv';
+dotenv.config({
+  path: '.env'
+});
 import cors from 'cors';
 import { setGlobalDispatcher, Agent } from 'undici';
 import { exec } from 'child_process';
@@ -15,14 +18,10 @@ setGlobalDispatcher(new Agent({
 import vedioRouter from './routes/video.routes';
 import archiveRouter from './routes/archive.routes';
 import transcriptRouter from './routes/transcript.routes';
-import aiRouter from './routes/ai.routes'
+import aiRouter from './routes/ai.routes';
 
 import {apiReference} from '@scalar/express-api-reference';
 import { getOpenAPIDocument } from './utils/openapi';
-
-dotenv.config({
-  path:'.env'
-})
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -47,7 +46,7 @@ app.get('/api/health', (req: Request, res: Response) => {
   res.json({ status: 'healthy', timestamp: new Date() });
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0',() => {
   console.log(`🚀 Backend server successfully running on http://localhost:${PORT}`);
   
   // Dynamically update yt-dlp and yt-dlp-ejs to the latest versions on startup in the background
