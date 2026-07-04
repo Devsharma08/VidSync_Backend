@@ -29,7 +29,8 @@ export async function getVideoDetails(req: Request, res: Response): Promise<void
          "Pragma": "no-cache",
          "Expires": "0",
          "Connection": "keep-alive",
-         "X-Accel-Buffering": "no" // Disable buffering on Nginx/reverse proxies
+         "X-Accel-Buffering": "no",
+         "Access-Control-Allow-Origin": "http://localhost:3000" // Disable buffering on Nginx/reverse proxies
       });
 
       res.write(`data:${JSON.stringify({ message: "Extracting video ID..." })}\n\n`);
@@ -48,7 +49,7 @@ export async function getVideoDetails(req: Request, res: Response): Promise<void
          video
       })}\n\n`);
       res.end();
-      
+
    } catch (error: any) {
       console.error("[videoController.getVideoDetails] Error:", error.message);
       res.write(`data:${JSON.stringify({ status: "error", message: error.message })}\n\n`);
@@ -80,7 +81,8 @@ export async function analyzeVideo(req: Request, res: Response): Promise<void> {
          "Pragma": "no-cache",
          "Expires": "0",
          "Connection": "keep-alive",
-         "X-Accel-Buffering": "no"
+         "X-Accel-Buffering": "no",
+         "Access-Control-Allow-Origin": "http://localhost:3000"
       });
 
       res.write(`data:${JSON.stringify({ message: "Queueing task..." })}\n\n`);
