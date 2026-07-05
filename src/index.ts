@@ -12,7 +12,8 @@ import videoRouter from './routes/video.routes';
 import archiveRouter from './routes/archive.routes';
 import transcriptRouter from './routes/transcript.routes';
 import aiRouter from './routes/ai.routes';
-import './queue/video.worker';
+import { videoWorker } from './queue/video.worker';
+import { videoQueue } from './queue/video.queue';
 import { apiReference } from '@scalar/express-api-reference';
 import { getOpenAPIDocument } from './utils/openapi';
 
@@ -57,7 +58,36 @@ app.get('/api/health', (req: Request, res: Response) => {
 });
 
 // Start the Express HTTP listener
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Backend server successfully running on http://localhost:${PORT}`);
 });
+
+/**
+ * Handle graceful shutdown of the HTTP server, BullMQ worker, and queue connections.
+ */
+const gracefulShutdown = async (signal: string) => {
+  console.log(`\n🛑 Received ${signal}. Starting graceful shutdown...`);
+  
+  server.close(() => {
+    console.log('HTTP server closed.');
+  });
+
+  try {
+    console.log('Closing BullMQ worker...');
+    await videoWorker.close();
+    console.log('BullMQ worker closed.');
+
+    console.log('Closing BullMQ queue...');
+    await videoQueue.close();
+    console.log('BullMQ queue closed.');
+  } catch (error) {
+    console.error('Error during BullMQ graceful shutdown:', error);
+  }
+
+  console.log('Graceful shutdown completed. Exiting process.');
+  process.exit(0);
+};
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 

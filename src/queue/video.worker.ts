@@ -10,10 +10,7 @@ import { EmbeddingService } from "../services/embedding.service";
 import { getPastStreamerChat } from "../controllers/archive-chat.controller";
 
 // Establish a dedicated Redis connection to publish progress updates
-const pubClient = new Redis({
-  host: (redisConnection as any).host,
-  port: (redisConnection as any).port,
-});
+const pubClient = new Redis(redisConnection as any);
 
 const videoService = new YoutubeService();
 const transcriptService = new TranscriptService();

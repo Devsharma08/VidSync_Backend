@@ -92,10 +92,7 @@ export async function analyzeVideo(req: Request, res: Response): Promise<void> {
       const jobId = job.id!;
 
       // Connect a dedicated Redis subscriber client for this unique job channel
-      const subClient = new Redis({
-         host: (redisConnection as any).host,
-         port: (redisConnection as any).port,
-      });
+      const subClient = new Redis(redisConnection as any);
 
       await subClient.subscribe(`job-progress:${jobId}`);
 

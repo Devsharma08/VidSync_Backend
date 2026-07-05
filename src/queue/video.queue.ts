@@ -14,6 +14,8 @@ export const videoQueue = new Queue('video-analysis', {
          delay: 5000,
       },
       removeOnComplete: true, // Auto-cleanup successful jobs from Redis memory
-      removeOnFail: false    // Retain failed jobs for debugging diagnostics
+      removeOnFail: {
+         count: 100 // Retain the last 100 failed jobs for diagnostics without leaking memory
+      }
    },
 });
