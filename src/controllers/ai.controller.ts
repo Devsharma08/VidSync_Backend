@@ -27,7 +27,7 @@ export async function summarizeTranscript(req: Request, res: Response): Promise<
       'Expires': '0',
       'Connection': 'keep-alive',
       'X-Accel-Buffering': 'no',
-      'Access-Control-Allow-Origin': 'http://localhost:3000'
+      'Access-Control-Allow-Origin': req.headers.origin || 'http://localhost:3000'
     });
     if (typeof (res as any).flushHeaders === 'function') (res as any).flushHeaders();
 
@@ -91,7 +91,7 @@ export async function queryVideoTimeline(req: Request, res: Response): Promise<v
       'Expires': '0',
       'Connection': 'keep-alive',
       'X-Accel-Buffering': 'no',
-      'Access-Control-Allow-Origin': 'http://localhost:3000'
+      'Access-Control-Allow-Origin': req.headers.origin || 'http://localhost:3000'
     });
     if (typeof (res as any).flushHeaders === 'function') (res as any).flushHeaders();
 

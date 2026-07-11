@@ -82,7 +82,7 @@ export async function analyzeVideo(req: Request, res: Response): Promise<void> {
          "Expires": "0",
          "Connection": "keep-alive",
          "X-Accel-Buffering": "no",
-         "Access-Control-Allow-Origin": "http://localhost:3000"
+         "Access-Control-Allow-Origin": req.headers.origin || "http://localhost:3000"
       });
 
       res.write(`data:${JSON.stringify({ message: "Queueing task..." })}\n\n`);
