@@ -37,6 +37,8 @@ export class YoutubeService {
          const res = await this.youtube.videos.list({
             part: ['snippet', 'statistics', 'liveStreamingDetails'],
             id: [video_id]
+         }, {
+            timeout: 15000
          });
          const item = res.data.items?.[0];
          if (!item) {
@@ -81,6 +83,8 @@ export class YoutubeService {
             liveChatId: liveChatId,
             part: ['snippet', 'authorDetails'],
             maxResults: 200
+         }, {
+            timeout: 15000
          });
 
          const items = res.data.items || [];
@@ -124,6 +128,8 @@ export class YoutubeService {
                maxResults: 100,
                pageToken: nextPageToken,
                order: 'time', // Order chronologically by newest first
+            }, {
+               timeout: 15000
             });
 
             const items: any = response.data.items || [];
@@ -181,6 +187,8 @@ export class YoutubeService {
             part: ['id'],
             forHandle: handle,
             maxResults: 1
+         }, {
+            timeout: 15000
          });
 
          const channelId = res.data.items?.[0]?.id;
