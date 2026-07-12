@@ -46,11 +46,15 @@ export class SentimentService {
     }
 
     try {
-      // Shuffle comments for diversity, then take up to 100 samples
+      // Shuffle comments for diversity, then take up to 60 samples
+      // Cap individual comment length to avoid token overflow
       const shuffled = [...comments].sort(() => Math.random() - 0.5);
-      const sampleComments = shuffled.slice(0, 100);
+      const sampleComments = shuffled
+        .slice(0, 60)
+        .map(c => c.replace(/"/g, "'").trim().slice(0, 200))  // cap each at 200 chars
+        .filter(c => c.length > 0);
       const commentsText = sampleComments
-        .map((c, i) => `${i + 1}. "${c.replace(/"/g, "'").trim()}"`)
+        .map((c, i) => `${i + 1}. "${c}"`)
         .join('\n');
 
       const apiKey = process.env.GROK_API_KEY;
@@ -58,7 +62,7 @@ export class SentimentService {
         throw new Error("GROK_API_KEY is not configured in the environment.");
       }
 
-      const response = await undiciFetch('https://api.x.ai/v1/chat/completions', {
+const response = await undiciFetch('https://api.x.ai/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -69,42 +73,41 @@ export class SentimentService {
           messages: [
             {
               role: 'system',
-              content: `You are a precise audience sentiment analyst. Your job is to analyze YouTube comments and return an accurate, video-specific sentiment breakdown. 
-Do NOT return generic or template results. The percentages MUST reflect the actual tone, language, and content of the comments provided. 
-If comments contain slang, memes, enthusiasm, criticism, or mixed reactions, reflect that accurately.
-You output ONLY valid JSON with no extra text.`
+              content: `You are a precise audience sentiment analyst. Your job is to analyze YouTube comments and return an accurate, video-specific sentiment breakdown.
+The percentages MUST reflect the actual tone, language, and content of the comments provided.
+You MUST respond with a valid JSON object matching the requested schema.`
             },
             {
               role: 'user',
-              content: `Analyze the sentiment of the following ${sampleComments.length} YouTube comments and return a precise breakdown.
+              content: `Analyze the sentiment of the following ${sampleComments.length} YouTube comments.
 
 Comments:
 ${commentsText}
 
-Respond with a JSON object with these exact keys:
+Return exactly this JSON structure:
 {
-  "rating": <float 1.0-5.0, precise to one decimal, reflecting actual positivity level>,
-  "positive": <integer 0-100, % of clearly positive/enthusiastic/supportive comments>,
-  "neutral": <integer 0-100, % of neutral/informational/question comments>,
-  "negative": <integer 0-100, % of critical/negative/disappointed comments>,
-  "summary": "<2-3 sentences describing the specific audience reaction, tone patterns, and notable sentiments observed in these comments. Be specific, not generic.>"
+  "rating": <float 1.0-5.0>,
+  "positive": <integer 0-100>,
+  "neutral": <integer 0-100>,
+  "negative": <integer 0-100>,
+  "summary": "<2-3 sentences about the specific audience reaction>"
 }
-
-The three percentages (positive + neutral + negative) MUST add up to exactly 100.`
+The three percentages must add up to exactly 100.`
             }
           ],
-          response_format: { type: 'json_object' },
-          temperature: 0.2
+          response_format: { type: "json_object" },
+          max_completion_tokens: 1000
         })
       });
 
       if (!response.ok) {
-        throw new Error(`Grok API Error: ${response.status} ${response.statusText}`);
+        const errBody = await response.text().catch(() => '(unreadable)');
+        throw new Error(`Grok API Error: ${response.status} ${response.statusText} — ${errBody}`);
       }
 
       const data = await response.json() as any;
-      const parsedContent = data.choices[0]?.message?.content?.trim() || "{}";
-      const parsed: SentimentResult = JSON.parse(parsedContent);
+      const rawContent = data.choices[0]?.message?.content?.trim() || "{}";
+      const parsed: SentimentResult = JSON.parse(rawContent);
 
       // Validate and sanitise output properties
       const positive = Math.min(100, Math.max(0, Math.round(Number(parsed.positive || 0))));
