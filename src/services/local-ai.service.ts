@@ -1,5 +1,6 @@
 import { Ollama } from 'ollama';
 import { fetch as undiciFetch, Agent } from 'undici';
+import { getRedisCache } from '../queue/connection';
 
 // Initialize connection agents with 5-minute timeouts to allow local LLM operations to complete
 const ollamaAgent = new Agent({
@@ -32,54 +33,76 @@ export class LocalAiService {
   async summarizeTranscript(
     transcriptText: string,
     mode: 'detailed' | 'normal' | 'short',
+    videoId: string,
     chunkToken: (chunkTokenData: { index?: number, chunkText?: string, percentage?: number, status: 'progress' | 'token' }) => void
   ): Promise<string[]> {
     try {
+      // ── Cache check ──────────────────────────────────────────────
+      const redis = getRedisCache();
+      const cacheKey = `cache:summary:${videoId}:${mode}`;
+      try {
+        const cached = await redis.get(cacheKey);
+        if (cached) {
+          console.log(`[LocalAiService] Cache HIT for summary ${cacheKey}`);
+          const parsed: string[] = JSON.parse(cached);
+          // Stream cached content back token-style so UI renders correctly
+          const full = parsed.join('\n\n');
+          chunkToken({ chunkText: full, index: 0, percentage: 100, status: 'token' });
+          chunkToken({ percentage: 100, status: 'progress' });
+          return parsed;
+        }
+      } catch (e) {
+        console.warn('[LocalAiService] Redis cache read failed, continuing without cache:', (e as Error).message);
+      }
+
       const words = transcriptText.split(/\s+/);
-      const chunkSize = 2000;
+      // Larger chunk window so each chunk gets more context → fewer, richer sections
+      const chunkSize = mode === 'detailed' ? 1500 : mode === 'short' ? 3000 : 2000;
       const chunks: string[] = [];
       
       for (let i = 0; i < words.length; i += chunkSize) {
         chunks.push(words.slice(i, i + chunkSize).join(' '));
       }
 
-      const totalChunks = chunks.length;
       let finishedChunksCount = 0;
       const summaryResults: string[] = [];
+
+      // Build mode-specific instruction for depth of output
+      const depthInstruction = {
+        detailed: 'Write a thorough, multi-paragraph analytical summary covering all key points, arguments, examples, and conclusions from this segment. Use markdown bullet points. Be complete — do not stop early.',
+        normal:   'Write a concise analytical summary covering the main topics and key takeaways from this segment. Use markdown bullet points.',
+        short:    'Write a brief 3-5 bullet point summary of only the most important points from this segment.',
+      }[mode];
 
       for (let index = 0; index < chunks.length; index++) {
         const chunkText = chunks[index];
         let chunkSummary = '';
 
-        let num_predict = 200;
-        if (mode === 'detailed') num_predict = 400;
-        else if (mode === 'short') num_predict = 100;
-
-        // Request streamed chat generation from local LLM
+        // Request streamed chat generation — num_predict -1 means uncapped (complete output)
         const response = await ollama.chat({
           model: this.modelName,
           messages: [
             {
               role: 'system',
-              content: 'You are an analytics assistant. Provide a detailed summary of the video segment in bullet points. Do not print short conversational replies.'
+              content: `You are an expert video analytics assistant. ${depthInstruction} Never truncate mid-sentence. Never include conversational filler or greetings.`
             },
             {
               role: 'user',
-              content: chunkText 
+              content: `Summarize this video transcript segment:\n\n${chunkText}`
             }
           ],
           options: {
-            temperature: 0.1,
-            num_predict: num_predict,
+            temperature: 0.15,
+            num_predict: -1,   // unlimited — let the model finish naturally
             top_p: 0.9,
             num_ctx: 4096
           },
           stream: true
         });
 
-        // Loop through streamed tokens and pass them back via the callback
+        // Stream tokens back to client
         for await (const token of response) {
-          let tempText = token.message.content;
+          const tempText = token.message.content;
           chunkSummary += tempText;
           chunkToken({
             chunkText: tempText,
@@ -95,25 +118,22 @@ export class LocalAiService {
           status: 'progress',
         });
 
-        let cleanSummary = chunkSummary.trim();
-        
-        // Strip conversational intros from the model response if they don't start with a bullet point
-        if (cleanSummary && !cleanSummary.startsWith('-') && !cleanSummary.startsWith('*') && !cleanSummary.startsWith('•')) {
-          const lines = cleanSummary.split('\n');
-          if (lines.length > 1) {
-            lines.shift();
-            cleanSummary = lines.join('\n').trim();
-          }
-        }
-
-        // Only print the main header block for the very first iteration
+        const cleanSummary = chunkSummary.trim();
         if (index === 0) {
           summaryResults.push(`--- Stream Summary Notes ---\n${cleanSummary}`);
         } else {
           summaryResults.push(`\n${cleanSummary}`);
         }
       }
-      
+
+      // ── Write to cache (24h TTL) ─────────────────────────────────
+      try {
+        await redis.set(cacheKey, JSON.stringify(summaryResults), 'EX', 86400);
+        console.log(`[LocalAiService] Cached summary ${cacheKey}`);
+      } catch (e) {
+        console.warn('[LocalAiService] Redis cache write failed:', (e as Error).message);
+      }
+
       return summaryResults;
 
     } catch (error: any) {

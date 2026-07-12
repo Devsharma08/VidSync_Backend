@@ -183,7 +183,7 @@ export const videoWorker = new Worker('video-analysis', async (job: Job) => {
     if (analyzeSentiment) {
       await publishLog({ message: "Analyzing audience sentiment..." });
       const commentMessages = commentsOrChat.map(c => c.message).filter(Boolean);
-      sentiment = await sentimentService.analyzeCommentsSentiment(commentMessages);
+      sentiment = await sentimentService.analyzeCommentsSentiment(commentMessages, videoId);
 
       await publishLog({ message: "Searching related videos on YouTube..." });
       recommendations = await videoService.fetchRelatedVideos(videoDetails.title || '');

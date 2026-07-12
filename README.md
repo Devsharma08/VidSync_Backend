@@ -1,156 +1,169 @@
-# Post-Stream Ingestion & Analysis Engine
+# VidSync — AI Stream Intel Terminal (Backend)
 
-An advanced Express & TypeScript backend designed to ingest post-stream YouTube videos and completed livestreams, scrape their transcripts and live chat records, align comments to transcript segments via typing-latency adjustments, generate local vector embeddings, and support context-guided RAG (Retrieval-Augmented Generation) Q&A queries.
+[![Deployed on EC2](https://img.shields.io/badge/Deployed-AWS%20EC2-orange?logo=amazon-aws)](https://vidsync.docs.devsharma.dev)
+[![Node.js](https://img.shields.io/badge/Node.js-20-green?logo=nodedotjs)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?logo=typescript)](https://www.typescriptlang.org)
+[![Docker](https://img.shields.io/badge/Docker-Compose-blue?logo=docker)](https://docs.docker.com/compose/)
 
-![Post-Stream Ingestion & Analysis Workflow](livestream_clipping_pipeline_workflow.svg)
-
----
-
-## 🚀 Key Features
-
-* **Dual Scrape Ingestion**: Scrapes subtitle transcripts and pulls completed live chat replays using Python sub-processes, falling back dynamically to standard comments if no chat log exists.
-* **Typing Latency Synchronization**: Compensates for typical typing speed delay ($1.5 \text{ seconds per word}$) by shifting comment timestamps backward to align them with the exact video event they reference.
-* **Cohesive Block Compilation**: Groups compiled voice transcripts and audience chat logs into **2-minute (120-second) chronological timeline blocks**.
-* **Local Semantic Search**: Assigns high-dimensional concept vectors to blocks using the local `nomic-embed-text` embedding model.
-* **Context-Driven RAG Q&A**: Stream responses token-by-token from a local `gemma3:1b` model using Server-Sent Events (SSE) based on cosine similarity context ranking.
-* **Automatic Translation**: Translates non-English transcripts and comments into English.
+The VidSync backend is a production-grade Express.js API server that orchestrates background YouTube video analysis pipelines using BullMQ, Redis, Ollama local AI, and the xAI Grok API. It streams all progress updates to the frontend via Server-Sent Events (SSE).
 
 ---
 
-## 🛠️ Project Structure
+## Live API
 
-This project follows the **MVC (Model-View-Controller)** pattern separating route mapping from business logic execution.
+```
+https://vidsync.docs.devsharma.dev
+```
 
-```text
-backend/
+Interactive API reference (Scalar UI): `https://vidsync.docs.devsharma.dev/reference`
+
+---
+
+## Architecture
+
+```
+Client (SSE)  ←──────────────────────────────────────────────┐
+                                                              │
+Browser ──POST──▶ Express API ──▶ BullMQ Queue ──▶ Redis    │
+                                        │                     │
+                                        ▼                     │
+                                   Video Worker               │
+                                  ┌────────────┐              │
+                                  │ Transcript │              │
+                                  │ Chat/Live  │              │
+                                  │ Timeline   │              │
+                                  │ Embeddings │              │
+                                  │ AI Summary │─────────────▶│
+                                  │ Sentiment  │              │
+                                  └────────────┘
+                                        │
+                              Ollama (gemma3:1b) + Grok API
+```
+
+---
+
+## Features
+
+- **BullMQ Pipeline** — Background job queue for full video ingest (transcript, chat, embeddings, summary, sentiment)
+- **SSE Streaming** — Real-time job progress delivered via Redis Pub/Sub → Express SSE
+- **Transcript Service** — Cookie-authenticated InnerTube requests with MWEB client spoofing and proxy fallback
+- **AI Summarizer** — Chunked transcript summarization via local Ollama (gemma3:1b) with unlimited token generation
+- **Sentiment Analysis** — Grok API (`grok-2-latest`) powered comment sentiment scoring with Redis 12h cache
+- **RAG Q&A** — Semantic vector search over timeline embeddings with keyword density fallback
+- **Redis Caching** — Summary results (24h TTL) and sentiment results (12h TTL) cached per videoId
+- **CORS Secured** — Restricted to `vidsync.devsharma.dev` and `vid-sync-ui.vercel.app`
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Runtime | Node.js 20 |
+| Framework | Express.js 5 |
+| Language | TypeScript 5 |
+| Queue | BullMQ + Redis (ioredis) |
+| Local AI | Ollama (`gemma3:1b`) |
+| Cloud AI | xAI Grok API (`grok-2-latest`) |
+| YouTube API | Google YouTube Data API v3 |
+| Containerization | Docker + Docker Compose |
+| Deployment | AWS EC2 |
+
+---
+
+## Project Structure
+
+```
+VidSync_Backend/
 ├── src/
-│   ├── controllers/      # Handles business logic and request processing
-│   │   ├── ai.controller.ts
+│   ├── controllers/
+│   │   ├── ai.controller.ts          # /api/ai/* SSE handlers
 │   │   ├── archive-chat.controller.ts
-│   │   ├── transcript.controller.ts
-│   │   └── video.controller.ts
-│   ├── routes/           # Registers endpoint URLs and maps to controller functions
+│   │   └── video.controller.ts       # /api/video/* SSE handlers
+│   ├── queue/
+│   │   ├── connection.ts             # BullMQ config + Redis cache singleton
+│   │   ├── video.queue.ts            # BullMQ queue definition
+│   │   └── video.worker.ts           # Full pipeline job processor
+│   ├── routes/
 │   │   ├── ai.routes.ts
-│   │   ├── archive.routes.ts
 │   │   ├── transcript.routes.ts
 │   │   └── video.routes.ts
-│   ├── services/         # Reusable core utility and AI engines
-│   │   ├── ai-summarizer.service.ts
-│   │   ├── data-processor.service.ts
-│   │   ├── embedding.service.ts
-│   │   ├── google.service.ts
-│   │   ├── local-ai.service.ts
-│   │   ├── search.service.ts
-│   │   ├── timeline.service.ts
-│   │   └── transcript.service.ts
-│   ├── utils/            # Helper parsing scripts
-│   │   ├── fetch_archive_chat.py
+│   ├── services/
+│   │   ├── ai-summarizer.service.ts  # Chunked Ollama summarization
+│   │   ├── embedding.service.ts      # Vector embedding generation
+│   │   ├── google.service.ts         # YouTube Data API v3
+│   │   ├── local-ai.service.ts       # Progressive SSE summarizer + RAG QA
+│   │   ├── search.service.ts         # Semantic + keyword timeline search
+│   │   ├── sentiment.service.ts      # Grok API sentiment analysis + cache
+│   │   ├── timeline.service.ts       # Timeline compilation + markdown
+│   │   └── transcript.service.ts     # InnerTube transcript fetcher
+│   ├── utils/
+│   │   ├── openapi.ts
 │   │   └── youtube-parser.ts
-│   └── index.ts          # Main Express app startup file
-└── package.json
+│   └── index.ts                      # Express server entry point
+├── Dockerfile
+├── docker-compose.yml
+└── .env.production                   # (gitignored — never commit)
 ```
 
 ---
 
-## 📡 API Endpoints
+## API Endpoints
 
-### 1. Video Ingestion Endpoints (`/api/video`)
-
-* **`POST /api/video/detail`**
-  * Establishes an SSE stream to extract the video ID and fetch metadata (channel handle, stream type) from the YouTube API.
-  * **Request Body**: `{ "url": "https://www.youtube.com/watch?v=..." }`
-
-* **`POST /api/video/analyze`**
-  * Establishes an SSE stream to process the full video. Scrapes transcripts/chat, aligns comment timestamps, compiles 2-minute timeline blocks, generates semantic embeddings, and creates a master markdown summary.
-  * **Request Body**: `{ "url": "https://www.youtube.com/watch?v=...", "channelLink": "https://youtube.com/@channel" }`
-
----
-
-### 2. Local AI & Query Endpoints (`/api/ai`)
-
-* **`POST /api/ai/summarize`**
-  * Establishes an SSE stream. Automatically partitions the transcript text and streams back bulleted summary notes from the local LLM.
-  * **Request Body**: `{ "url": "https://www.youtube.com/watch?v=..." }`
-
-* **`POST /api/ai/query`**
-  * Streams an interactive Q&A response from the LLM based on user queries.
-  * **Request Body**:
-    ```json
-    {
-      "url": "https://www.youtube.com/watch?v=...",
-      "question": "What did the streamer say about the build failure?",
-      "timelineBlocks": [ /* List of blocks with pre-computed embeddings */ ]
-    }
-    ```
-  * **Flow**:
-    1. If blocks contain `.embedding` arrays, it uses **semantic vector similarity** (Cosine similarity calculation) to find the top 3 blocks.
-    2. If no embeddings are found, it falls back to a **keyword density match score**.
-    3. The closest 3 blocks are fed to `gemma3:1b` context to stream the answer.
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/video/detail` | Fetch video metadata (SSE) |
+| `POST` | `/api/video/analyze` | Run full BullMQ ingest pipeline (SSE) |
+| `POST` | `/api/ai/summarize` | Generate AI summary (SSE, modes: detailed/normal/short) |
+| `POST` | `/api/ai/query` | RAG Q&A over video timeline (SSE) |
+| `POST` | `/api/transcript` | Fetch and parse closed captions |
+| `GET`  | `/api/health` | Health check |
+| `GET`  | `/reference` | Interactive Scalar API docs |
 
 ---
 
-### 3. Transcript Processing Endpoints (`/api`)
+## Environment Variables
 
-* **`POST /api/transcript`**
-  * Fetches the video subtitle transcript and returns it translated to English.
-  * **Request Body**: `{ "url": "https://www.youtube.com/watch?v=..." }`
+Create a `.env.production` file (never commit this):
 
-* **`POST /api/process-outcomes`**
-  * Analyzes the video text to generate suggest keywords (tags), auto-chapters based on transition phrases, and processing statistics.
-  * **Request Body**: `{ "url": "https://www.youtube.com/watch?v=..." }`
-
----
-
-### 4. Archive Downloading Endpoints (`/api/archive`)
-
-* **`POST /api/archive/chat-or-comments`**
-  * Directly fetches chat records. Checks for active live chat, falls back to completed chat replays, and falls back to standard comment logs.
-  * **Request Body**: `{ "url": "https://...", "channelLink": "https://...", "onlyStreamerChat": true }`
-
----
-
-## ⚙️ In-Memory Semantic Search Flow
-
-The semantic search matches the user's intent mathematically rather than relying on exact string matches:
-
-```mermaid
-flowchart TD
-    A[User Search Query] --> B[Generate Query Vector using nomic-embed-text]
-    B --> C[Compute Dot Product with each Block Vector]
-    C --> D[Normalize by magnitudes: Cosine Similarity]
-    D --> E{Similarity Score > 0.35?}
-    E -- No --> F[Reject block]
-    E -- Yes --> G[Rank and Sort blocks descending]
-    G --> H[Retrieve Top 3 blocks as LLM RAG Context]
-```
-
----
-
-## 🔧 Prerequisites & Setup
-
-### 1. Install local AI models with Ollama
-Make sure [Ollama](https://ollama.com/) is installed and running locally:
-```bash
-# Pull the chat LLM
-ollama pull gemma3:1b
-
-# Pull the vector embedding model
-ollama pull nomic-embed-text
-```
-
-### 2. Configure Environment Variables
-Create a `backend/.env` file with your YouTube API and Hugging Face credentials:
 ```env
 PORT=5000
-YOUTUBE_API_KEY=YOUR_GOOGLE_DEVELOPER_KEY
-HF_API_KEY=YOUR_HUGGING_FACE_TOKEN
+YT_V3_API_KEY=your_youtube_data_api_key
+GROK_API_KEY=your_xai_grok_api_key
+PROXY_URL=optional_proxy_url
+YOUTUBE_COOKIE=your_yt_session_cookie
+YOUTUBE_USER_AGENT=Mozilla/5.0 ...
+REDIS_HOST=127.0.0.1
+REDIS_PORT=6379
+OLLAMA_HOST=http://ollama:11434
 ```
 
-### 3. Install Dependencies & Start Server
-Ensure pnpm is installed:
+---
+
+## Docker Deployment
+
 ```bash
-cd backend
+# First time setup on EC2
+git clone https://github.com/Devsharma08/VidSync_Backend.git
+cd VidSync_Backend
+
+# Pull latest and rebuild containers
+git pull origin main
+docker compose up -d --build
+```
+
+> If the build runs out of memory on a small EC2 instance, add swap space first:
+> ```bash
+> sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+> ```
+
+---
+
+## Local Development
+
+```bash
 pnpm install
 pnpm run dev
 ```
-The server will start running on `http://localhost:5000`.
+
+Requires a running Redis instance and Ollama with `gemma3:1b` pulled locally.

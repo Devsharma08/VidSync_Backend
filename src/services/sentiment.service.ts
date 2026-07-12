@@ -1,18 +1,5 @@
-import { Ollama } from 'ollama';
-import { fetch as undiciFetch, Agent } from 'undici';
-
-// Initialize a connection agent with 5-minute timeout parameters for the Ollama connection
-const ollamaAgent = new Agent({
-  connectTimeout: 60000,
-  headersTimeout: 300000,
-  bodyTimeout: 300000,
-});
-
-// Configure the Ollama instance communicating with the local host container
-const ollama = new Ollama({
-  host: process.env.OLLAMA_HOST || 'http://127.0.0.1:11434',
-  fetch: ((input: any, init: any) => undiciFetch(input, { ...init, dispatcher: ollamaAgent })) as any
-});
+import { fetch as undiciFetch } from 'undici';
+import { getRedisCache } from '../queue/connection';
 
 export interface SentimentResult {
   rating: number;
@@ -23,15 +10,16 @@ export interface SentimentResult {
 }
 
 export class SentimentService {
-  private modelName = 'gemma3:1b';
 
   /**
-   * Evaluates the sentiment and reception rating of audience comments using the local LLM.
+   * Evaluates the sentiment and reception rating of audience comments using the Grok API.
+   * Results are cached in Redis keyed by videoId for 12 hours to avoid redundant API calls.
    * 
    * @param comments Array of comment message strings
+   * @param videoId YouTube video ID for cache keying
    * @returns Structured sentiment metrics
    */
-  async analyzeCommentsSentiment(comments: string[]): Promise<SentimentResult> {
+  async analyzeCommentsSentiment(comments: string[], videoId = 'unknown'): Promise<SentimentResult> {
     const defaultResult: SentimentResult = {
       rating: 4.0,
       positive: 60,
@@ -44,58 +32,107 @@ export class SentimentService {
       return defaultResult;
     }
 
+    // ── Cache check ──────────────────────────────────────────────────────────
+    const redis = getRedisCache();
+    const cacheKey = `cache:sentiment:${videoId}`;
     try {
-      // Sample the top 30 comments to respect context limits and run quickly
-      const sampleComments = comments.slice(0, 30);
-      const commentsText = sampleComments.map((c, i) => `${i + 1}. "${c}"`).join('\n');
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        console.log(`[SentimentService] Cache HIT for ${cacheKey}`);
+        return JSON.parse(cached) as SentimentResult;
+      }
+    } catch (e) {
+      console.warn('[SentimentService] Redis cache read failed:', (e as Error).message);
+    }
 
-      const response = await ollama.chat({
-        model: this.modelName,
-        messages: [
-          {
-            role: 'system',
-            content: 'You are an audience sentiment analyzer. You output ONLY valid JSON representing sentiment analysis results.'
-          },
-          {
-            role: 'user',
-            content: `Analyze the overall audience sentiment from the following comments list.
-  
-  Audience Comments:
-  ${commentsText}
-  
-  Format the output as a valid JSON object with the exact keys:
-  {
-    "rating": 4.2, // Float score (1.0 to 5.0) reflecting the audience appreciation level
-    "positive": 60, // Integer (0 to 100) representing percentage of positive feedback
-    "neutral": 30,  // Integer (0 to 100) representing percentage of neutral/inquisitive feedback
-    "negative": 10, // Integer (0 to 100) representing percentage of critical or negative feedback
-    "summary": "Short 2-sentence description summarizing viewer feedback."
-  }
-  
-  Do not include any notes, formatting backticks, or conversational text outside of the JSON object.`
-          }
-        ],
-        format: 'json',
-        options: {
-          temperature: 0.1,
-          num_ctx: 4096,
-          num_predict: 200
-        }
+    try {
+      // Shuffle comments for diversity, then take up to 100 samples
+      const shuffled = [...comments].sort(() => Math.random() - 0.5);
+      const sampleComments = shuffled.slice(0, 100);
+      const commentsText = sampleComments
+        .map((c, i) => `${i + 1}. "${c.replace(/"/g, "'").trim()}"`)
+        .join('\n');
+
+      const apiKey = process.env.GROK_API_KEY;
+      if (!apiKey) {
+        throw new Error("GROK_API_KEY is not configured in the environment.");
+      }
+
+      const response = await undiciFetch('https://api.x.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: 'grok-2-latest',
+          messages: [
+            {
+              role: 'system',
+              content: `You are a precise audience sentiment analyst. Your job is to analyze YouTube comments and return an accurate, video-specific sentiment breakdown. 
+Do NOT return generic or template results. The percentages MUST reflect the actual tone, language, and content of the comments provided. 
+If comments contain slang, memes, enthusiasm, criticism, or mixed reactions, reflect that accurately.
+You output ONLY valid JSON with no extra text.`
+            },
+            {
+              role: 'user',
+              content: `Analyze the sentiment of the following ${sampleComments.length} YouTube comments and return a precise breakdown.
+
+Comments:
+${commentsText}
+
+Respond with a JSON object with these exact keys:
+{
+  "rating": <float 1.0-5.0, precise to one decimal, reflecting actual positivity level>,
+  "positive": <integer 0-100, % of clearly positive/enthusiastic/supportive comments>,
+  "neutral": <integer 0-100, % of neutral/informational/question comments>,
+  "negative": <integer 0-100, % of critical/negative/disappointed comments>,
+  "summary": "<2-3 sentences describing the specific audience reaction, tone patterns, and notable sentiments observed in these comments. Be specific, not generic.>"
+}
+
+The three percentages (positive + neutral + negative) MUST add up to exactly 100.`
+            }
+          ],
+          response_format: { type: 'json_object' },
+          temperature: 0.2
+        })
       });
 
-      const parsed: SentimentResult = JSON.parse(response.message.content.trim());
-      
-      // Sanitise and validate the output properties
-      return {
-        rating: Math.min(5.0, Math.max(1.0, Number(parsed.rating || 4.0))),
-        positive: Math.min(100, Math.max(0, Math.round(Number(parsed.positive || 0)))),
-        neutral: Math.min(100, Math.max(0, Math.round(Number(parsed.neutral || 0)))),
-        negative: Math.min(100, Math.max(0, Math.round(Number(parsed.negative || 0)))),
-        summary: parsed.summary || defaultResult.summary
+      if (!response.ok) {
+        throw new Error(`Grok API Error: ${response.status} ${response.statusText}`);
+      }
+
+      const data = await response.json() as any;
+      const parsedContent = data.choices[0]?.message?.content?.trim() || "{}";
+      const parsed: SentimentResult = JSON.parse(parsedContent);
+
+      // Validate and sanitise output properties
+      const positive = Math.min(100, Math.max(0, Math.round(Number(parsed.positive || 0))));
+      const neutral  = Math.min(100, Math.max(0, Math.round(Number(parsed.neutral  || 0))));
+      const negative = Math.min(100, Math.max(0, Math.round(Number(parsed.negative || 0))));
+
+      // Normalize so they always sum to 100
+      const total = positive + neutral + negative || 100;
+      const result: SentimentResult = {
+        rating:   Math.min(5.0, Math.max(1.0, Number(parsed.rating || 4.0))),
+        positive: Math.round((positive / total) * 100),
+        neutral:  Math.round((neutral  / total) * 100),
+        negative: Math.round((negative / total) * 100),
+        summary:  parsed.summary || defaultResult.summary
       };
 
+      // ── Write to cache (12h TTL) ─────────────────────────────────────────
+      try {
+        await redis.set(cacheKey, JSON.stringify(result), 'EX', 43200);
+        console.log(`[SentimentService] Cached sentiment for ${cacheKey}`);
+      } catch (e) {
+        console.warn('[SentimentService] Redis cache write failed:', (e as Error).message);
+      }
+
+      return result;
+
     } catch (error: any) {
-      console.error('[SentimentService] Local Q&A sentiment analysis failed:', error.message);
+      console.error('[SentimentService] Grok sentiment analysis failed:', error.message);
       return defaultResult;
     }
   }

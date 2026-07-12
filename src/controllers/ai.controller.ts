@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { TranscriptService } from '../services/transcript.service';
 import { LocalAiService } from '../services/local-ai.service';
 import { SearchService } from '../services/search.service';
+import { extractVideoId } from '../utils/youtube-parser';
 
 const transcriptService = new TranscriptService();
 const localAi = new LocalAiService();
@@ -43,9 +44,10 @@ export async function summarizeTranscript(req: Request, res: Response): Promise<
 
     // Fetch full closed captions transcript
     const transcriptData = await transcriptService.getFullVideoTranscript(url);
+    const videoId = transcriptData.videoId || extractVideoId(url) || 'unknown';
 
     // Request progressive summary from local AI engine and stream tokens to client
-    const summaryResult = await localAi.summarizeTranscript(transcriptData.fullCaptionText, mode, (progress) => {
+    const summaryResult = await localAi.summarizeTranscript(transcriptData.fullCaptionText, mode, videoId, (progress) => {
       res.write(`data:${JSON.stringify(progress)}\n\n`);
       if (typeof (res as any).flush === 'function') (res as any).flush();
 
