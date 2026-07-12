@@ -69,7 +69,7 @@ const response = await undiciFetch('https://api.x.ai/v1/chat/completions', {
           'Authorization': `Bearer ${apiKey}`
         },
         body: JSON.stringify({
-          model: 'grok-2-latest',
+          model: 'grok-4.1-fast-non-reasoning',
           messages: [
             {
               role: 'system',
