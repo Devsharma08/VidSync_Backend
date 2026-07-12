@@ -40,16 +40,21 @@ app.use('/reference', apiReference({
   }
 }));
 
-// Configure Cross-Origin Resource Sharing (CORS) for local frontend requests
-const allowedOrigins = ['http://localhost:3000', 'http://localhost:3001'];
+// Configure Cross-Origin Resource Sharing (CORS) for production frontend
+const allowedOrigins = [
+  'https://vid-sync-ui.vercel.app', 
+  'https://vidsync.devsharma.dev'
+];
 app.use(cors({
   origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl) or strictly allowed domains
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));
     }
-  }
+  },
+  credentials: true,
 }));
 
 // Mount API endpoint routers
