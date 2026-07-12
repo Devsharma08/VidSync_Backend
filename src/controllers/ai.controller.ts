@@ -17,7 +17,7 @@ const searchService = new SearchService();
  */
 export async function summarizeTranscript(req: Request, res: Response): Promise<void> {
   try {
-    const { url } = req.body || {};
+    const { url, mode = 'normal' } = req.body || {};
 
     // Initialize Server-Sent Events (SSE) stream headers
     res.status(200).writeHead(200, {
@@ -45,7 +45,7 @@ export async function summarizeTranscript(req: Request, res: Response): Promise<
     const transcriptData = await transcriptService.getFullVideoTranscript(url);
 
     // Request progressive summary from local AI engine and stream tokens to client
-    const summaryResult = await localAi.summarizeTranscript(transcriptData.fullCaptionText, (progress) => {
+    const summaryResult = await localAi.summarizeTranscript(transcriptData.fullCaptionText, mode, (progress) => {
       res.write(`data:${JSON.stringify(progress)}\n\n`);
       if (typeof (res as any).flush === 'function') (res as any).flush();
 

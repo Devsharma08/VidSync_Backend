@@ -31,6 +31,7 @@ export class LocalAiService {
    */
   async summarizeTranscript(
     transcriptText: string,
+    mode: 'detailed' | 'normal' | 'short',
     chunkToken: (chunkTokenData: { index?: number, chunkText?: string, percentage?: number, status: 'progress' | 'token' }) => void
   ): Promise<string[]> {
     try {
@@ -50,6 +51,10 @@ export class LocalAiService {
         const chunkText = chunks[index];
         let chunkSummary = '';
 
+        let num_predict = 200;
+        if (mode === 'detailed') num_predict = 400;
+        else if (mode === 'short') num_predict = 100;
+
         // Request streamed chat generation from local LLM
         const response = await ollama.chat({
           model: this.modelName,
@@ -65,7 +70,7 @@ export class LocalAiService {
           ],
           options: {
             temperature: 0.1,
-            num_predict: 200,
+            num_predict: num_predict,
             top_p: 0.9,
             num_ctx: 4096
           },

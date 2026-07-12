@@ -36,7 +36,7 @@ importers:
         specifier: ^173.0.0
         version: 173.0.0
       ioredis:
-        specifier: ^5.11.1
+        specifier: ^5.4.1
         version: 5.11.1
       ollama:
         specifier: ^0.6.3

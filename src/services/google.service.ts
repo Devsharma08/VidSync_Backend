@@ -204,4 +204,45 @@ export class YoutubeService {
          throw error;
       }
    }
+
+   /**
+    * Searches YouTube for videos related to a title and returns their metadata and statistics.
+    * 
+    * @param title Title of the video to search related content for
+    * @returns Array of related video recommendations with engagement statistics
+    */
+   async fetchRelatedVideos(title: string) {
+      try {
+         const searchRes = await this.youtube.search.list({
+            part: ['snippet'],
+            q: title,
+            type: ['video'],
+            maxResults: 4
+         }, {
+            timeout: 15000
+         });
+
+         const videoIds = (searchRes.data.items || []).map(item => item.id?.videoId).filter(Boolean) as string[];
+         if (videoIds.length === 0) return [];
+
+         const statsRes = await this.youtube.videos.list({
+            part: ['snippet', 'statistics'],
+            id: videoIds
+         }, {
+            timeout: 15000
+         });
+
+         return (statsRes.data.items || []).map(item => ({
+            id: item.id,
+            title: item.snippet?.title || 'Unknown Title',
+            channelTitle: item.snippet?.channelTitle || 'Unknown Channel',
+            viewCount: Number(item.statistics?.viewCount || 0),
+            likeCount: Number(item.statistics?.likeCount || 0),
+            thumbnailUrl: item.snippet?.thumbnails?.medium?.url || item.snippet?.thumbnails?.default?.url || ''
+         }));
+      } catch (error: any) {
+         console.error("[YoutubeService.fetchRelatedVideos] Failed to search related videos:", error.message);
+         return [];
+      }
+   }
 }

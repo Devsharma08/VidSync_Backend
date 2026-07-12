@@ -8,6 +8,7 @@ import { TimelineService } from "../services/timeline.service";
 import { AiSummarizerService } from "../services/ai-summarizer.service";
 import { EmbeddingService } from "../services/embedding.service";
 import { getPastStreamerChat } from "../controllers/archive-chat.controller";
+import { SentimentService } from "../services/sentiment.service";
 
 // Establish a dedicated Redis connection to publish progress updates
 const pubClient = new Redis(redisConnection as any);
@@ -17,6 +18,7 @@ const transcriptService = new TranscriptService();
 const timelineService = new TimelineService();
 const aiSummarizer = new AiSummarizerService();
 const embeddingService = new EmbeddingService();
+const sentimentService = new SentimentService();
 
 /**
  * BullMQ Worker instance processing the 'video-analysis' queue jobs.
@@ -31,7 +33,15 @@ const embeddingService = new EmbeddingService();
  * 8. Publishing progress update events onto Redis channels
  */
 export const videoWorker = new Worker('video-analysis', async (job: Job) => {
-  const { url, channelLink } = job.data;
+  const { url, channelLink, options } = job.data;
+  console.log(`[videoWorker] Processing job ${job.id} with options:`, JSON.stringify(options));
+  
+  // Strict coercion to ensure false values are correctly parsed
+  const fetchChat = options?.fetchChat !== false && options?.fetchChat !== 'false';
+  const generateEmbeddings = options?.generateEmbeddings !== false && options?.generateEmbeddings !== 'false';
+  const generateSummary = options?.generateSummary !== false && options?.generateSummary !== 'false';
+  const analyzeSentiment = options?.analyzeSentiment !== false && options?.analyzeSentiment !== 'false';
+
   const jobId = job.id!;
 
   /**
@@ -64,39 +74,43 @@ export const videoWorker = new Worker('video-analysis', async (job: Job) => {
     const activeLiveChatId = videoDetails.isLiveStream?.activeLiveChatId || null;
     let commentsOrChat: any[] = [];
 
-    // Fallback Sequence 1: Extract chat messages from active live stream session
-    if (activeLiveChatId) {
-      await publishLog({ message: "Fetching active live chat..." });
-      try {
-         const liveMessages = await videoService.getActiveLiveChatMessages(activeLiveChatId);
-         commentsOrChat = liveMessages.filter((msg: any) => msg.is_streamer);
-      } catch (err: any) {
-         console.error(`[Worker Job ${jobId}] Active chat fetch failed: ${err.message}`);
+    if (fetchChat) {
+      // Fallback Sequence 1: Extract chat messages from active live stream session
+      if (activeLiveChatId) {
+        await publishLog({ message: "Fetching active live chat..." });
+        try {
+           const liveMessages = await videoService.getActiveLiveChatMessages(activeLiveChatId);
+           commentsOrChat = liveMessages.filter((msg: any) => msg.is_streamer);
+        } catch (err: any) {
+           console.error(`[Worker Job ${jobId}] Active chat fetch failed: ${err.message}`);
+        }
       }
-    }
 
-    // Fallback Sequence 2: Scrape replay chat logs if live stream is completed
-    if (commentsOrChat.length === 0 && isLiveStream) {
-      await publishLog({ message: "Fetching completed livestream chat replay..." });
-      try {
-         const chatReplay = await getPastStreamerChat(url);
-         commentsOrChat = chatReplay.filter((msg: any) => msg.is_streamer);
-      } catch (err: any) {
-         console.warn(`[Worker Job ${jobId}] Completed chat scrape failed: ${err.message}`);
+      // Fallback Sequence 2: Scrape replay chat logs if live stream is completed
+      if (commentsOrChat.length === 0 && isLiveStream) {
+        await publishLog({ message: "Fetching completed livestream chat replay..." });
+        try {
+           const chatReplay = await getPastStreamerChat(url);
+           commentsOrChat = chatReplay.filter((msg: any) => msg.is_streamer);
+        } catch (err: any) {
+           console.warn(`[Worker Job ${jobId}] Completed chat scrape failed: ${err.message}`);
+        }
       }
-    }
 
-    // Fallback Sequence 3: Retrieve public comments threads if scraping fails
-    if (commentsOrChat.length === 0) {
-      await publishLog({ message: "Fetching standard comments fallback..." });
-      try {
-         const regularComments = await videoService.getAllPastLiveComments(videoId, videoDetails.channelId || undefined);
-         commentsOrChat = regularComments.filter(
-           (c: any) => c.isStreamer || (c.replies && c.replies.some((r: any) => r.isStreamer))
-         );
-      } catch (err: any) {
-         console.error(`[Worker Job ${jobId}] Standard comments fallback failed: ${err.message}`);
+      // Fallback Sequence 3: Retrieve public comments threads if scraping fails
+      if (commentsOrChat.length === 0) {
+        await publishLog({ message: "Fetching standard comments fallback..." });
+        try {
+           const regularComments = await videoService.getAllPastLiveComments(videoId, videoDetails.channelId || undefined);
+           commentsOrChat = regularComments.filter(
+             (c: any) => c.isStreamer || (c.replies && c.replies.some((r: any) => r.isStreamer))
+           );
+        } catch (err: any) {
+           console.error(`[Worker Job ${jobId}] Standard comments fallback failed: ${err.message}`);
+        }
       }
+    } else {
+      console.log(`[Worker Job ${jobId}] Skipping chat and comments extraction as requested.`);
     }
 
     await publishLog({ message: "Compiling video and chat timeline..." });
@@ -136,24 +150,45 @@ export const videoWorker = new Worker('video-analysis', async (job: Job) => {
     const timelineBlocks = timelineService.generateTimelineBlocks(compiledEvents);
     
     // Attempt local high-dimensional vector embedding generation
-    try {
-      await publishLog({ message: "Generating local vector embeddings..." });
-      await embeddingService.embedBlocks(timelineBlocks);
-    } catch (embErr: any) {
-      console.warn(`[Worker Job ${jobId}] Vector embeddings skipped: ${embErr.message}`);
+    if (generateEmbeddings) {
+      try {
+        await publishLog({ message: "Generating local vector embeddings..." });
+        await embeddingService.embedBlocks(timelineBlocks);
+      } catch (embErr: any) {
+        console.warn(`[Worker Job ${jobId}] Vector embeddings skipped: ${embErr.message}`);
+      }
+    } else {
+      console.log(`[Worker Job ${jobId}] Skipping vector embeddings generation as requested.`);
     }
 
     const markdownTimeline = timelineService.generateMarkdownTimeline(compiledEvents);
 
-    // Run AI summarizing tasks
-    let summary = "No summary generated.";
-    if (transcriptData?.fullCaptionText) {
+    // Run AI summarizing tasks (conditional)
+    let summary = "No summary generated. Check the 'Generate AI Summary Paragraph' checkbox during ingest or click the 'AI Summary' button to run on-demand.";
+    if (generateSummary && transcriptData?.fullCaptionText) {
       await publishLog({ message: "Generating analytical summary..." });
       try {
         summary = await aiSummarizer.generateSummary(transcriptData.fullCaptionText);
       } catch (err: any) {
         console.warn(`[Worker Job ${jobId}] Summary generation failed: ${err.message}`);
       }
+    } else {
+      console.log(`[Worker Job ${jobId}] Skipping summary generation as requested.`);
+    }
+
+    // Run audience sentiment analysis and fetch recommendations
+    let sentiment: any = null;
+    let recommendations: any[] = [];
+
+    if (analyzeSentiment) {
+      await publishLog({ message: "Analyzing audience sentiment..." });
+      const commentMessages = commentsOrChat.map(c => c.message).filter(Boolean);
+      sentiment = await sentimentService.analyzeCommentsSentiment(commentMessages);
+
+      await publishLog({ message: "Searching related videos on YouTube..." });
+      recommendations = await videoService.fetchRelatedVideos(videoDetails.title || '');
+    } else {
+      console.log(`[Worker Job ${jobId}] Skipping sentiment and recommendations as requested.`);
     }
 
     // Publish completion message with structured outputs
@@ -164,7 +199,9 @@ export const videoWorker = new Worker('video-analysis', async (job: Job) => {
       summary,
       timelineBlocks,
       markdownTimeline,
-      totalEvents: compiledEvents.length
+      totalEvents: compiledEvents.length,
+      sentiment,
+      recommendations
     });
 
   } catch (error: any) {

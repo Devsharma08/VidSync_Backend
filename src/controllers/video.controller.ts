@@ -68,7 +68,8 @@ export async function getVideoDetails(req: Request, res: Response): Promise<void
  */
 export async function analyzeVideo(req: Request, res: Response): Promise<void> {
    try {
-      const { url, channelLink } = req.body || {};
+      const { url, channelLink, options } = req.body || {};
+      console.log(`[videoController.analyzeVideo] Received request options:`, JSON.stringify(options));
       if (!url) {
          res.status(400).json({ message: "URL is required" });
          return;
@@ -88,7 +89,7 @@ export async function analyzeVideo(req: Request, res: Response): Promise<void> {
       res.write(`data:${JSON.stringify({ message: "Queueing task..." })}\n\n`);
 
       // Enqueue processing job in BullMQ
-      const job = await videoQueue.add('analyze', { url, channelLink });
+      const job = await videoQueue.add('analyze', { url, channelLink, options });
       const jobId = job.id!;
 
       // Connect a dedicated Redis subscriber client for this unique job channel

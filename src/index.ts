@@ -29,8 +29,9 @@ setGlobalDispatcher(new Agent({
 const app = express();
 const PORT = parseInt(process.env.PORT || '4000', 10);
 
-// Enable parsing of JSON body payloads
-app.use(express.json());
+// Enable parsing of JSON body payloads with size adjustments for large embeddings arrays
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Serve the Scalar interactive OpenAPI documentation reference
 app.use('/reference', apiReference({
